@@ -91,27 +91,6 @@ muted = false
 - ソースとターゲットのサンプルレートが異なる場合は自動リサンプリング（例: 192kHz → 48kHz）
 - キャプチャと再生間のスレッドセーフなオーディオ転送にリングバッファを使用
 
-## 5.1ch対応アプリケーション
-
-Windowsで本当のサラウンドサウンドを出力するアプリケーション:
-
-**ストリーミング:**
-- Netflix（Windows Storeアプリ）
-- Disney+（Windows Storeアプリ）
-- Plex, Jellyfin, Kodi
-
-**ゲーム:**
-- ほとんどのPCゲームは5.1chをネイティブサポート
-
-**メディアプレーヤー:**
-- VLC
-- MPC-BE
-- mpv
-
-**非対応:**
-- Webブラウザ（Chrome, Edge, Firefox）- HTML5オーディオはステレオのみ
-- Spotify, Amazon Music（Windows版）
-
 ## ライセンス
 
 MIT
