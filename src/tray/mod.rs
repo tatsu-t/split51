@@ -38,6 +38,8 @@ pub struct TrayManager {
     right_volume_items: HashMap<MenuId, f32>,
     source_device_items: HashMap<MenuId, String>,
     target_device_items: HashMap<MenuId, String>,
+    source_menu_items: Vec<(MenuId, MenuItem, String)>,
+    target_menu_items: Vec<(MenuId, MenuItem, String)>,
     toggle_id: MenuId,
     swap_id: MenuId,
     startup_id: MenuId,
@@ -85,22 +87,26 @@ impl TrayManager {
         // Source device submenu with checkmarks
         let source_submenu = Submenu::new("Source Device (Loopback)", true);
         let mut source_device_items = HashMap::new();
+        let mut source_menu_items = Vec::new();
         for device in source_devices {
             let is_current = current_source.map(|s| s == device).unwrap_or(false);
             let label = if is_current { format!("[*] {}", device) } else { device.clone() };
             let item = MenuItem::new(&label, true, None);
             source_device_items.insert(item.id().clone(), device.clone());
+            source_menu_items.push((item.id().clone(), item.clone(), device.clone()));
             source_submenu.append(&item)?;
         }
 
         // Target device submenu with checkmarks
         let target_submenu = Submenu::new("Target Device (Output)", true);
         let mut target_device_items = HashMap::new();
+        let mut target_menu_items = Vec::new();
         for device in target_devices {
             let is_current = current_target.map(|t| t == device).unwrap_or(false);
             let label = if is_current { format!("[*] {}", device) } else { device.clone() };
             let item = MenuItem::new(&label, true, None);
             target_device_items.insert(item.id().clone(), device.clone());
+            target_menu_items.push((item.id().clone(), item.clone(), device.clone()));
             target_submenu.append(&item)?;
         }
 
@@ -256,6 +262,8 @@ impl TrayManager {
             right_volume_items,
             source_device_items,
             target_device_items,
+            source_menu_items,
+            target_menu_items,
             toggle_id,
             swap_id,
             startup_id,
@@ -308,6 +316,24 @@ impl TrayManager {
 
     pub fn set_right_mute(&mut self, muted: bool) {
         self.right_mute_item.set_checked(muted);
+    }
+
+    /// Update source device menu checkmarks
+    pub fn set_current_source(&mut self, device: Option<&str>) {
+        for (_, item, name) in &self.source_menu_items {
+            let is_current = device.map(|d| d == name).unwrap_or(false);
+            let label = if is_current { format!("[*] {}", name) } else { name.clone() };
+            item.set_text(&label);
+        }
+    }
+
+    /// Update target device menu checkmarks
+    pub fn set_current_target(&mut self, device: Option<&str>) {
+        for (_, item, name) in &self.target_menu_items {
+            let is_current = device.map(|d| d == name).unwrap_or(false);
+            let label = if is_current { format!("[*] {}", name) } else { name.clone() };
+            item.set_text(&label);
+        }
     }
 
     pub fn handle_menu_event(&self, event: &MenuEvent) -> Option<TrayCommand> {

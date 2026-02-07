@@ -18,6 +18,90 @@ pub struct AudioDevice {
     pub sample_rate: u32,
 }
 
+/// Minimal struct for playing test tones from a background thread
+pub struct TestTonePlayer {
+    host: cpal::Host,
+    swap_channels: Arc<RwLock<bool>>,
+    target_device_name: Option<String>,
+}
+
+impl TestTonePlayer {
+    fn find_output_device(&self, name: &str) -> Option<Device> {
+        self.host.output_devices().ok()?.find(|d| {
+            d.name().map(|n| n.contains(name)).unwrap_or(false)
+        })
+    }
+
+    pub fn play_test_tone_sub(&self, left_channel: bool) -> Result<()> {
+        let target_name = self.target_device_name.as_ref()
+            .context("No target device configured. Start routing first.")?;
+        
+        let swap = *self.swap_channels.read();
+        let actual_left = if swap { !left_channel } else { left_channel };
+        
+        self.play_tone_on_device(target_name, actual_left, "Sub", left_channel)
+    }
+
+    pub fn play_test_tone_main(&self, left_channel: bool, source_name: &str) -> Result<()> {
+        self.play_tone_on_device(source_name, left_channel, "Main", left_channel)
+    }
+
+    fn play_tone_on_device(&self, device_name: &str, actual_left_channel: bool, label: &str, display_left: bool) -> Result<()> {
+        let output_device = self.find_output_device(device_name)
+            .context(format!("Output device not found: {}", device_name))?;
+
+        let output_supported = output_device.default_output_config()?;
+        let sample_rate = output_supported.sample_rate().0 as f32;
+        
+        let output_config = StreamConfig {
+            channels: 2,
+            sample_rate: cpal::SampleRate(sample_rate as u32),
+            buffer_size: cpal::BufferSize::Default,
+        };
+
+        let freq = 440.0;
+        let duration_samples = (sample_rate * 0.5) as usize;
+        let samples_total = std::sync::Arc::new(AtomicU32::new(0));
+        let samples_total_clone = samples_total.clone();
+
+        let stream = output_device.build_output_stream(
+            &output_config,
+            move |data: &mut [f32], _: &_| {
+                for frame in data.chunks_mut(2) {
+                    let current = samples_total_clone.fetch_add(1, Ordering::Relaxed) as usize;
+                    if current >= duration_samples {
+                        frame[0] = 0.0;
+                        frame[1] = 0.0;
+                    } else {
+                        let t = current as f32 / sample_rate;
+                        let sample = (t * freq * 2.0 * std::f32::consts::PI).sin() * 0.5;
+                        
+                        if actual_left_channel {
+                            frame[0] = sample;
+                            frame[1] = 0.0;
+                        } else {
+                            frame[0] = 0.0;
+                            frame[1] = sample;
+                        }
+                    }
+                }
+            },
+            move |err| error!("Test tone error: {}", err),
+            None,
+        )?;
+
+        stream.play()?;
+        
+        let side = if display_left { "LEFT" } else { "RIGHT" };
+        info!("Playing test tone on {} {} for 0.6 sec", label, side);
+        
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        drop(stream);
+        
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct ChannelSettings {
     pub source: ChannelSource,
@@ -127,6 +211,15 @@ impl AudioRouter {
         ch.source = config.source;
         ch.volume = config.volume;
         ch.muted = config.muted;
+    }
+
+    /// Clone minimal state needed for test tones (thread-safe)
+    pub fn clone_for_test(&self) -> TestTonePlayer {
+        TestTonePlayer {
+            host: cpal::default_host(),
+            swap_channels: self.swap_channels.clone(),
+            target_device_name: self.target_device_name.clone(),
+        }
     }
 
     pub fn set_left_source(&self, source: ChannelSource) {
@@ -248,81 +341,5 @@ impl AudioRouter {
         }
         
         info!("Audio routing stopped");
-    }
-
-    /// Play a test tone on the target (sub) device (respects swap_channels)
-    pub fn play_test_tone_sub(&self, left_channel: bool) -> Result<()> {
-        let target_name = self.target_device_name.as_ref()
-            .context("No target device configured. Start routing first.")?;
-        
-        // Apply swap_channels for sub speaker test
-        let swap = *self.swap_channels.read();
-        let actual_left = if swap { !left_channel } else { left_channel };
-        
-        self.play_tone_on_device(target_name, actual_left, "Sub", left_channel)
-    }
-
-    /// Play a test tone on the source (main) device
-    pub fn play_test_tone_main(&self, left_channel: bool, source_name: &str) -> Result<()> {
-        self.play_tone_on_device(source_name, left_channel, "Main", left_channel)
-    }
-
-    /// Play tone: actual_left_channel = physical output, display_left = label for user
-    fn play_tone_on_device(&self, device_name: &str, actual_left_channel: bool, label: &str, display_left: bool) -> Result<()> {
-        let output_device = self.find_output_device(device_name)
-            .context(format!("Output device not found: {}", device_name))?;
-
-        let output_supported = output_device.default_output_config()?;
-        let sample_rate = output_supported.sample_rate().0 as f32;
-        
-        let output_config = StreamConfig {
-            channels: 2,
-            sample_rate: cpal::SampleRate(sample_rate as u32),
-            buffer_size: cpal::BufferSize::Default,
-        };
-
-        let freq = 440.0; // A4 note
-        let duration_samples = (sample_rate * 0.5) as usize; // 0.5 seconds
-        let samples_total = std::sync::Arc::new(AtomicU32::new(0));
-        let samples_total_clone = samples_total.clone();
-
-        let stream = output_device.build_output_stream(
-            &output_config,
-            move |data: &mut [f32], _: &_| {
-                for frame in data.chunks_mut(2) {
-                    let current = samples_total_clone.fetch_add(1, Ordering::Relaxed) as usize;
-                    if current >= duration_samples {
-                        frame[0] = 0.0;
-                        frame[1] = 0.0;
-                    } else {
-                        // Generate sine wave
-                        let t = current as f32 / sample_rate;
-                        let sample = (t * freq * 2.0 * std::f32::consts::PI).sin() * 0.5;
-                        
-                        if actual_left_channel {
-                            frame[0] = sample;
-                            frame[1] = 0.0;
-                        } else {
-                            frame[0] = 0.0;
-                            frame[1] = sample;
-                        }
-                    }
-                }
-            },
-            move |err| error!("Test tone error: {}", err),
-            None,
-        )?;
-
-        stream.play()?;
-        
-        // Play for 0.6 seconds then stop
-        let side = if display_left { "LEFT" } else { "RIGHT" };
-        info!("Playing test tone on {} {} for 0.6 sec", label, side);
-        
-        // Keep stream alive for duration
-        std::thread::sleep(std::time::Duration::from_millis(600));
-        drop(stream);
-        
-        Ok(())
     }
 }

@@ -1,1 +1,17 @@
 /target
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Config (user-specific)
+config.toml
+
+# Debug
+*.log
+
+# Personal notes (not for GitHub)
+NOTES.md

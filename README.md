@@ -13,6 +13,7 @@ Windowsのメインオーディオ出力からサラウンドチャンネルを�
 - L/R入れ替えとバランス調整
 - スピーカーテストトーン
 - 設定の永続化（TOML）
+- Windows起動時の自動起動
 
 ## 使用例
 
@@ -45,6 +46,7 @@ cargo build --release
 3. トレイアイコンを右クリックして設定にアクセス:
    - **Enable/Disable Routing** - オーディオルーティングの開始/停止
    - **Swap L/R Channels** - 左右チャンネル入れ替え
+   - **Start with Windows** - Windows起動時に自動起動
    - **Source Device** - キャプチャ元デバイス（ループバック）
    - **Target Device** - 出力デバイス
    - **Master Volume** - 全体音量
@@ -86,10 +88,62 @@ muted = false
 
 ## 技術詳細
 
-- WASAPI Loopbackで低遅延オーディオキャプチャ
-- チャンネルマッピング: FL(0), FR(1), RL(2), RR(3)
-- ソースとターゲットのサンプルレートが異なる場合は自動リサンプリング（例: 192kHz → 48kHz）
-- キャプチャと再生間のスレッドセーフなオーディオ転送にリングバッファを使用
+### アーキテクチャ
+
+```
+┌─────────────────┐    WASAPI Loopback    ┌─────────────────┐
+│  Main Speakers  │ ───────────────────▶  │  tatsu-audioapp │
+│  (4ch output)   │                       │                 │
+│ FL│FR│RL│RR     │                       │  RL/RR抽出      │
+└─────────────────┘                       │  + リサンプリング│
+                                          └────────┬────────┘
+                                                   │
+                                                   ▼
+                                          ┌─────────────────┐
+                                          │  2nd Output     │
+                                          │  (Stereo L/R)   │
+                                          └─────────────────┘
+```
+
+### 処理フロー
+
+1. **WASAPI Loopback キャプチャ**
+   - Windows Audio Session API (WASAPI) を使用
+   - 共有モードでメイン出力デバイスをループバックキャプチャ
+   - フラグ: `AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK`
+
+2. **チャンネル抽出**
+   - 4chオーディオ: FL(0), FR(1), RL(2), RR(3)
+   - 5.1ch: FL(0), FR(1), FC(2), LFE(3), RL(4), RR(5)
+   - RL/RRのみを抽出してステレオL/Rにマッピング
+
+3. **リサンプリング** (必要時のみ)
+   - `rubato` クレートを使用
+   - SincInterpolation (Linear) による高品質変換
+   - 例: 192kHz → 48kHz の自動変換
+
+4. **出力**
+   - `cpal` クレートでセカンダリデバイスに出力
+   - `ringbuf` によるスレッドセーフなオーディオ転送
+
+### 使用ライブラリ
+
+| クレート | 役割 |
+|---------|------|
+| `windows` | WASAPI Loopback API |
+| `cpal` | クロスプラットフォームオーディオ出力 |
+| `rubato` | 高品質リサンプリング |
+| `ringbuf` | ロックフリーリングバッファ |
+| `parking_lot` | 高速RwLock |
+| `tray-icon` | システムトレイアイコン |
+| `muda` | ネイティブメニュー |
+| `winit` | Windowsメッセージポンプ |
+| `toml` / `serde` | 設定ファイル永続化 |
+
+### デバッグ情報
+
+- バッファオーバーフロー発生時はログに警告出力
+- `RUST_LOG=info` 環境変数で詳細ログ有効化
 
 ## ライセンス
 

@@ -108,16 +108,18 @@ impl ApplicationHandler for App {
                         tray::TrayCommand::ToggleStartup => {
                             let current = is_startup_enabled();
                             let new_state = !current;
-                            // Update UI immediately
-                            tray_manager.set_startup(new_state);
-                            // Run registry operation in background
-                            std::thread::spawn(move || {
-                                if let Err(e) = set_startup_enabled(new_state) {
-                                    error!("Failed to toggle startup: {}", e);
-                                } else {
+                            // Run registry operation and update UI based on result
+                            match set_startup_enabled(new_state) {
+                                Ok(_) => {
+                                    tray_manager.set_startup(new_state);
                                     info!("Startup: {}", new_state);
                                 }
-                            });
+                                Err(e) => {
+                                    error!("Failed to toggle startup: {}", e);
+                                    // Keep UI in sync with actual state
+                                    tray_manager.set_startup(current);
+                                }
+                            }
                         }
                         tray::TrayCommand::SetVolume(vol) => {
                             self.config.volume = vol;
@@ -180,6 +182,7 @@ impl ApplicationHandler for App {
                                     info!("Source changed to: {}", device);
                                 }
                             }
+                            tray_manager.set_current_source(Some(&device));
                             let _ = self.config.save();
                         }
                         tray::TrayCommand::SelectTargetDevice(device) => {
@@ -193,27 +196,42 @@ impl ApplicationHandler for App {
                                     info!("Target changed to: {}", device);
                                 }
                             }
+                            tray_manager.set_current_target(Some(&device));
                             let _ = self.config.save();
                         }
                         tray::TrayCommand::TestMainLeft => {
-                            if let Err(e) = self.router.play_test_tone_main(true, &self.source_name) {
-                                error!("Test tone error: {}", e);
-                            }
+                            let source = self.source_name.clone();
+                            let router = self.router.clone_for_test();
+                            std::thread::spawn(move || {
+                                if let Err(e) = router.play_test_tone_main(true, &source) {
+                                    error!("Test tone error: {}", e);
+                                }
+                            });
                         }
                         tray::TrayCommand::TestMainRight => {
-                            if let Err(e) = self.router.play_test_tone_main(false, &self.source_name) {
-                                error!("Test tone error: {}", e);
-                            }
+                            let source = self.source_name.clone();
+                            let router = self.router.clone_for_test();
+                            std::thread::spawn(move || {
+                                if let Err(e) = router.play_test_tone_main(false, &source) {
+                                    error!("Test tone error: {}", e);
+                                }
+                            });
                         }
                         tray::TrayCommand::TestSubLeft => {
-                            if let Err(e) = self.router.play_test_tone_sub(true) {
-                                error!("Test tone error: {}", e);
-                            }
+                            let router = self.router.clone_for_test();
+                            std::thread::spawn(move || {
+                                if let Err(e) = router.play_test_tone_sub(true) {
+                                    error!("Test tone error: {}", e);
+                                }
+                            });
                         }
                         tray::TrayCommand::TestSubRight => {
-                            if let Err(e) = self.router.play_test_tone_sub(false) {
-                                error!("Test tone error: {}", e);
-                            }
+                            let router = self.router.clone_for_test();
+                            std::thread::spawn(move || {
+                                if let Err(e) = router.play_test_tone_sub(false) {
+                                    error!("Test tone error: {}", e);
+                                }
+                            });
                         }
                         tray::TrayCommand::Quit => {
                             info!("Quit requested");

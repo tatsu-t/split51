@@ -9,7 +9,7 @@ use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
-use tracing::{info, error};
+use tracing::{info, error, warn};
 use crate::config::ChannelSource;
 use super::ChannelSettings;
 
@@ -163,6 +163,9 @@ fn capture_loop<P: Producer<Item = f32>>(
     left_channel: &RwLock<ChannelSettings>,
     right_channel: &RwLock<ChannelSettings>,
 ) -> Result<()> {
+    // Track buffer overflow warnings (only log once per 1000 drops)
+    let mut overflow_counter: u32 = 0;
+    
     unsafe {
         // Initialize COM for this thread
         CoInitializeEx(None, COINIT_MULTITHREADED)
@@ -301,15 +304,27 @@ fn capture_loop<P: Producer<Item = f32>>(
                             // Interleave and push to producer
                             let frames = resampled[0].len();
                             for i in 0..frames {
-                                let _ = producer.try_push(resampled[0][i]);
-                                let _ = producer.try_push(resampled[1][i]);
+                                if producer.try_push(resampled[0][i]).is_err() {
+                                    overflow_counter += 1;
+                                    if overflow_counter == 1 || overflow_counter % 10000 == 0 {
+                                        warn!("Buffer overflow: {} samples dropped (output not consuming fast enough)", overflow_counter);
+                                    }
+                                }
+                                if producer.try_push(resampled[1][i]).is_err() {
+                                    overflow_counter += 1;
+                                }
                             }
                         }
                     }
                 } else {
                     // No resampling needed, push directly
                     for sample in stereo_output {
-                        let _ = producer.try_push(sample);
+                        if producer.try_push(sample).is_err() {
+                            overflow_counter += 1;
+                            if overflow_counter == 1 || overflow_counter % 10000 == 0 {
+                                warn!("Buffer overflow: {} samples dropped", overflow_counter);
+                            }
+                        }
                     }
                 }
 
