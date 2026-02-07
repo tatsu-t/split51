@@ -22,7 +22,7 @@ fn is_startup_enabled() -> bool {
     const CREATE_NO_WINDOW: u32 = 0x08000000;
     
     let output = Command::new("reg")
-        .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "tatsu-audioapp"])
+        .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "split51"])
         .creation_flags(CREATE_NO_WINDOW)
         .output();
     output.map(|o| o.status.success()).unwrap_or(false)
@@ -39,14 +39,14 @@ fn set_startup_enabled(enabled: bool) -> Result<()> {
         let path_str = exe_path.to_string_lossy();
         Command::new("reg")
             .args(["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", 
-                   "/v", "tatsu-audioapp", "/t", "REG_SZ", "/d", &path_str, "/f"])
+                   "/v", "split51", "/t", "REG_SZ", "/d", &path_str, "/f"])
             .creation_flags(CREATE_NO_WINDOW)
             .output()?;
         info!("Registered for startup: {}", path_str);
     } else {
         Command::new("reg")
             .args(["delete", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", 
-                   "/v", "tatsu-audioapp", "/f"])
+                   "/v", "split51", "/f"])
             .creation_flags(CREATE_NO_WINDOW)
             .output()?;
         info!("Unregistered from startup");
@@ -247,10 +247,10 @@ impl ApplicationHandler for App {
 }
 
 fn print_help() {
-    println!("tatsu-audioapp - Windows audio routing tool");
+    println!("split51 - Windows 5.1ch surround audio splitter");
     println!();
     println!("USAGE:");
-    println!("    tatsu-audioapp [OPTIONS]");
+    println!("    split51 [OPTIONS]");
     println!();
     println!("OPTIONS:");
     println!("    -h, --help       Show this help message");
@@ -262,7 +262,7 @@ fn print_help() {
 }
 
 fn print_version() {
-    println!("tatsu-audioapp {}", env!("CARGO_PKG_VERSION"));
+    println!("split51 {}", env!("CARGO_PKG_VERSION"));
 }
 
 fn main() -> Result<()> {
@@ -285,7 +285,7 @@ fn main() -> Result<()> {
 
     // Initialize logging
     tracing_subscriber::fmt::init();
-    info!("tatsu-audioapp starting...");
+    info!("split51 starting...");
 
     // Load config
     let mut config = AppConfig::load().unwrap_or_else(|e| {
@@ -441,7 +441,7 @@ fn main() -> Result<()> {
     event_loop.set_control_flow(ControlFlow::Wait);
     event_loop.run_app(&mut app)?;
 
-    info!("tatsu-audioapp stopped");
+    info!("split51 stopped");
     Ok(())
 }
 

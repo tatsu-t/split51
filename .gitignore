@@ -15,3 +15,6 @@ config.toml
 
 # Personal notes (not for GitHub)
 NOTES.md
+
+# Old exe (renamed)
+tatsu-audioapp.exe

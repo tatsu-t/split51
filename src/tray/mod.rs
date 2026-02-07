@@ -244,7 +244,7 @@ impl TrayManager {
         // Create tray icon
         let icon = create_default_icon()?;
         let tray_icon = TrayIconBuilder::new()
-            .with_tooltip("tatsu-audioapp - Audio Router")
+            .with_tooltip("split51 - 5.1ch Audio Splitter")
             .with_icon(icon)
             .with_menu(Box::new(menu.clone()))
             .build()?;
@@ -287,9 +287,9 @@ impl TrayManager {
         self.toggle_item.set_text(text);
         
         let tooltip = if enabled {
-            "tatsu-audioapp - Routing Active"
+            "split51 - Routing Active"
         } else {
-            "tatsu-audioapp - Routing Disabled"
+            "split51 - Routing Disabled"
         };
         self.tray_icon.set_tooltip(Some(tooltip)).ok();
         

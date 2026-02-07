@@ -1,7 +1,12 @@
 [package]
-name = "tatsu-audioapp"
-version = "0.1.1"
+name = "split51"
+version = "1.0.0"
 edition = "2024"
+description = "Windows 5.1ch surround audio splitter - Route RL/RR channels to secondary output"
+authors = ["tatsu-t"]
+repository = "https://github.com/tatsu-t/split51"
+license = "MIT"
+keywords = ["audio", "wasapi", "surround", "5.1ch", "windows"]
 
 [dependencies]
 # Audio
@@ -40,7 +45,7 @@ windows = { version = "0.58", features = [
 ] }
 
 [[bin]]
-name = "tatsu-audioapp"
+name = "split51"
 path = "src/main.rs"
 
 [profile.release]
