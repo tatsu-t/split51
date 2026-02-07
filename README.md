@@ -1,60 +1,69 @@
 # tatsu-audioapp
 
-Windows audio routing tool that captures surround channels from the main audio output and routes them to a secondary audio device.
+Windowsのメインオーディオ出力からサラウンドチャンネルをキャプチャし、別のオーディオデバイスにルーティングするツール。
 
-## Features
+## 機能
 
-- WASAPI Loopback capture from the primary speakers (4ch+)
-- Extracts Rear Left (RL) and Rear Right (RR) channels from multichannel audio
-- Routes extracted channels to a secondary output device (e.g., 2nd speaker output)
-- Automatic sample rate conversion (resampling)
-- System tray application with full configuration menu
-- Per-channel volume, mute, and source selection
-- L/R swap and balance control
-- Speaker test tones
-- Configuration persistence (TOML)
+- WASAPI Loopbackでプライマリスピーカー（4ch以上）からキャプチャ
+- マルチチャンネルオーディオからRL（リアレフト）とRR（リアライト）チャンネルを抽出
+- 抽出したチャンネルをセカンダリ出力デバイスへルーティング
+- サンプルレート自動変換（リサンプリング）
+- システムトレイアプリ（右クリックで設定メニュー）
+- チャンネル別の音量、ミュート、ソース選択
+- L/R入れ替えとバランス調整
+- スピーカーテストトーン
+- 設定の永続化（TOML）
 
-## Use Case
+## ユースケース
 
-This tool is designed for setups where:
-- You have a 4+ channel audio output (e.g., Realtek with 4ch/5.1ch configuration)
-- You want to route the rear surround channels to a separate physical output
-- You don't want to add virtual audio devices
+このツールは以下のような環境で使用します:
+- 4ch以上のオーディオ出力がある（例: Realtekの4ch/5.1ch設定）
+- リアサラウンドチャンネルを別の物理出力にルーティングしたい
+- 仮想オーディオデバイスを増やしたくない
 
-Example: Route rear speakers from main Speakers output to Realtek 2nd Output.
+例: メインのSpeakers出力からリアスピーカーをRealtek 2nd Outputにルーティング。
 
-## Requirements
+## 必要条件
 
 - Windows 10/11
-- Audio device with 4+ channel support
-- Secondary audio output device
-- Rust toolchain (for building)
+- 4ch以上対応のオーディオデバイス
+- セカンダリオーディオ出力デバイス
+- Rustツールチェーン（ビルドする場合）
 
-## Building
+## ビルド
 
 ```powershell
 cargo build --release
 ```
 
-The executable will be at `target\release\tatsu-audioapp.exe`
+実行ファイルは `target\release\tatsu-audioapp.exe` に生成されます。
 
-## Usage
+## 使い方
 
-1. Run `tatsu-audioapp.exe`
-2. The app starts in the system tray
-3. Right-click the tray icon to access settings:
-   - **Enable/Disable Routing** - Start/stop audio routing
-   - **Swap L/R Channels** - Swap left and right output
-   - **Source Device** - Select the device to capture from (loopback)
-   - **Target Device** - Select the output device
-   - **Master Volume** - Overall volume control
-   - **Balance** - Left/Right balance adjustment
-   - **Left/Right Speaker** - Per-channel settings (source, volume, mute)
-   - **Speaker Test** - Test tone for each speaker
+1. `tatsu-audioapp.exe` を実行
+2. アプリはシステムトレイで起動
+3. トレイアイコンを右クリックして設定にアクセス:
+   - **Enable/Disable Routing** - オーディオルーティングの開始/停止
+   - **Swap L/R Channels** - 左右チャンネル入れ替え
+   - **Source Device** - キャプチャ元デバイス（ループバック）
+   - **Target Device** - 出力デバイス
+   - **Master Volume** - 全体音量
+   - **Balance** - 左右バランス調整
+   - **Left/Right Speaker** - チャンネル別設定（ソース、音量、ミュート）
+   - **Speaker Test** - 各スピーカーのテストトーン
 
-## Configuration
+## コマンドラインオプション
 
-Settings are saved to `config.toml` in the same directory as the executable:
+```
+tatsu-audioapp --help     # ヘルプ表示
+tatsu-audioapp --version  # バージョン表示
+tatsu-audioapp --list     # デバイス一覧
+tatsu-audioapp --quiet    # 静かに起動
+```
+
+## 設定ファイル
+
+設定は実行ファイルと同じディレクトリの `config.toml` に保存されます:
 
 ```toml
 source_device = "Speakers (Realtek(R) Audio)"
@@ -75,34 +84,34 @@ volume = 1.0
 muted = false
 ```
 
-## Technical Details
+## 技術詳細
 
-- Uses WASAPI Loopback for low-latency audio capture
-- Channel mapping: FL(0), FR(1), RL(2), RR(3)
-- Automatic resampling when source and target sample rates differ (e.g., 192kHz to 48kHz)
-- Ring buffer for thread-safe audio transfer between capture and playback
+- WASAPI Loopbackで低遅延オーディオキャプチャ
+- チャンネルマッピング: FL(0), FR(1), RL(2), RR(3)
+- ソースとターゲットのサンプルレートが異なる場合は自動リサンプリング（例: 192kHz → 48kHz）
+- キャプチャと再生間のスレッドセーフなオーディオ転送にリングバッファを使用
 
-## 5.1ch Supported Applications
+## 5.1ch対応アプリケーション
 
-Applications that output true surround sound on Windows:
+Windowsで本当のサラウンドサウンドを出力するアプリケーション:
 
-**Streaming:**
-- Netflix (Windows Store app)
-- Disney+ (Windows Store app)
+**ストリーミング:**
+- Netflix（Windows Storeアプリ）
+- Disney+（Windows Storeアプリ）
 - Plex, Jellyfin, Kodi
 
-**Games:**
-- Most PC games support 5.1ch natively
+**ゲーム:**
+- ほとんどのPCゲームは5.1chをネイティブサポート
 
-**Media Players:**
+**メディアプレーヤー:**
 - VLC
 - MPC-BE
 - mpv
 
-**Not Supported:**
-- Web browsers (Chrome, Edge, Firefox) - HTML5 audio is stereo only
-- Spotify, Amazon Music (Windows versions)
+**非対応:**
+- Webブラウザ（Chrome, Edge, Firefox）- HTML5オーディオはステレオのみ
+- Spotify, Amazon Music（Windows版）
 
-## License
+## ライセンス
 
 MIT
