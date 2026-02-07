@@ -1,3 +1,6 @@
+// Hide console window in release builds
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod audio;
 mod config;
 mod tray;
@@ -11,6 +14,45 @@ use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::WindowId;
+
+/// Check if app is registered for startup
+fn is_startup_enabled() -> bool {
+    use std::process::Command;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    
+    let output = Command::new("reg")
+        .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", "/v", "tatsu-audioapp"])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
+    output.map(|o| o.status.success()).unwrap_or(false)
+}
+
+/// Register or unregister app for Windows startup
+fn set_startup_enabled(enabled: bool) -> Result<()> {
+    use std::process::Command;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    
+    if enabled {
+        let exe_path = std::env::current_exe()?;
+        let path_str = exe_path.to_string_lossy();
+        Command::new("reg")
+            .args(["add", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", 
+                   "/v", "tatsu-audioapp", "/t", "REG_SZ", "/d", &path_str, "/f"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()?;
+        info!("Registered for startup: {}", path_str);
+    } else {
+        Command::new("reg")
+            .args(["delete", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run", 
+                   "/v", "tatsu-audioapp", "/f"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()?;
+        info!("Unregistered from startup");
+    }
+    Ok(())
+}
 
 fn format_balance(bal: f32) -> String {
     if bal < -0.01 {
@@ -38,7 +80,7 @@ impl ApplicationHandler for App {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // Process menu events
         if let Ok(event) = MenuEvent::receiver().try_recv() {
-            if let Some(ref tray_manager) = self.tray_manager {
+            if let Some(ref mut tray_manager) = self.tray_manager {
                 if let Some(cmd) = tray_manager.handle_menu_event(&event) {
                     match cmd {
                         tray::TrayCommand::ToggleEnabled => {
@@ -53,15 +95,29 @@ impl ApplicationHandler for App {
                                 self.router.stop();
                                 info!("Routing disabled");
                             }
-                            tray_manager.update_toggle_text(self.config.enabled);
+                            tray_manager.set_enabled(self.config.enabled);
                             let _ = self.config.save();
                         }
                         tray::TrayCommand::ToggleSwapChannels => {
                             self.config.swap_channels = !self.config.swap_channels;
                             self.router.set_swap_channels(self.config.swap_channels);
-                            tray_manager.update_swap_checked(self.config.swap_channels);
+                            tray_manager.set_swap(self.config.swap_channels);
                             info!("Swap channels: {}", self.config.swap_channels);
                             let _ = self.config.save();
+                        }
+                        tray::TrayCommand::ToggleStartup => {
+                            let current = is_startup_enabled();
+                            let new_state = !current;
+                            // Update UI immediately
+                            tray_manager.set_startup(new_state);
+                            // Run registry operation in background
+                            std::thread::spawn(move || {
+                                if let Err(e) = set_startup_enabled(new_state) {
+                                    error!("Failed to toggle startup: {}", e);
+                                } else {
+                                    info!("Startup: {}", new_state);
+                                }
+                            });
                         }
                         tray::TrayCommand::SetVolume(vol) => {
                             self.config.volume = vol;
@@ -90,14 +146,14 @@ impl ApplicationHandler for App {
                         tray::TrayCommand::ToggleLeftMute => {
                             self.config.left_channel.muted = !self.config.left_channel.muted;
                             self.router.set_left_muted(self.config.left_channel.muted);
-                            tray_manager.update_left_mute(self.config.left_channel.muted);
+                            tray_manager.set_left_mute(self.config.left_channel.muted);
                             info!("Left mute: {}", self.config.left_channel.muted);
                             let _ = self.config.save();
                         }
                         tray::TrayCommand::ToggleRightMute => {
                             self.config.right_channel.muted = !self.config.right_channel.muted;
                             self.router.set_right_muted(self.config.right_channel.muted);
-                            tray_manager.update_right_mute(self.config.right_channel.muted);
+                            tray_manager.set_right_mute(self.config.right_channel.muted);
                             info!("Right mute: {}", self.config.right_channel.muted);
                             let _ = self.config.save();
                         }
@@ -333,8 +389,19 @@ fn main() -> Result<()> {
     let tray_manager = tray::TrayManager::new(
         &device_names,
         &device_names,
+        Some(&source_name),
+        Some(&target_name),
+        config.volume,
+        config.balance,
+        config.left_channel.source,
+        config.right_channel.source,
+        config.left_channel.volume,
+        config.right_channel.volume,
+        config.left_channel.muted,
+        config.right_channel.muted,
         config.enabled,
         config.swap_channels,
+        is_startup_enabled(),
     )?;
 
     info!("Tray icon initialized, entering main loop");
