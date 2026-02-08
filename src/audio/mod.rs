@@ -289,8 +289,9 @@ impl AudioRouter {
             buffer_size: cpal::BufferSize::Default,
         };
 
-        // Create ring buffer
-        let ring_buffer = HeapRb::<f32>::new(sample_rate.0 as usize * 2 * 2); // 2 sec buffer
+        // Create ring buffer - 100ms buffer for low latency
+        let buffer_samples = (sample_rate.0 as f32 * 0.1) as usize * 2; // 100ms stereo
+        let ring_buffer = HeapRb::<f32>::new(buffer_samples);
         let (producer, mut consumer) = ring_buffer.split();
 
         self.running.store(true, Ordering::Relaxed);

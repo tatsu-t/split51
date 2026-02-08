@@ -194,7 +194,8 @@ fn capture_loop<P: Producer<Item = f32>>(
         const AUDCLNT_STREAMFLAGS_LOOPBACK: u32 = 0x00020000;
         const AUDCLNT_STREAMFLAGS_EVENTCALLBACK: u32 = 0x00040000;
         
-        let buffer_duration = 10_000_000i64; // 1 second in 100-nanosecond units
+        // 20ms buffer for low latency (200000 * 100ns = 20ms)
+        let buffer_duration = 200_000i64;
         
         client.Initialize(
             AUDCLNT_SHAREMODE_SHARED,
