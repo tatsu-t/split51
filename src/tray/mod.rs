@@ -7,6 +7,7 @@ use crate::config::ChannelSource;
 pub enum TrayCommand {
     ToggleEnabled,
     ToggleSwapChannels,
+    ToggleCloneStereo,
     ToggleStartup,
     SetVolume(f32),
     SetBalance(f32),
@@ -29,6 +30,7 @@ pub struct TrayManager {
     tray_icon: TrayIcon,
     toggle_item: MenuItem,
     swap_item: CheckMenuItem,
+    clone_stereo_item: CheckMenuItem,
     startup_item: CheckMenuItem,
     left_mute_item: CheckMenuItem,
     right_mute_item: CheckMenuItem,
@@ -42,14 +44,19 @@ pub struct TrayManager {
     target_menu_items: Vec<(MenuId, MenuItem, String)>,
     toggle_id: MenuId,
     swap_id: MenuId,
+    clone_stereo_id: MenuId,
     startup_id: MenuId,
     quit_id: MenuId,
     test_main_left_id: MenuId,
     test_main_right_id: MenuId,
     test_sub_left_id: MenuId,
     test_sub_right_id: MenuId,
+    left_fl_id: MenuId,
+    left_fr_id: MenuId,
     left_rl_id: MenuId,
     left_rr_id: MenuId,
+    right_fl_id: MenuId,
+    right_fr_id: MenuId,
     right_rl_id: MenuId,
     right_rr_id: MenuId,
     left_mute_id: MenuId,
@@ -72,6 +79,7 @@ impl TrayManager {
         right_muted: bool,
         enabled: bool,
         swap_channels: bool,
+        clone_stereo: bool,
         startup_enabled: bool,
     ) -> Result<Self> {
         // Create menu items
@@ -80,6 +88,9 @@ impl TrayManager {
 
         // Swap channels checkbox
         let swap_item = CheckMenuItem::new("Swap L/R Channels", true, swap_channels, None);
+        
+        // Clone stereo checkbox (FL/FR instead of RL/RR)
+        let clone_stereo_item = CheckMenuItem::new("Clone Stereo (FL/FR)", true, clone_stereo, None);
         
         // Startup checkbox
         let startup_item = CheckMenuItem::new("Start with Windows", true, startup_enabled, None);
@@ -142,12 +153,17 @@ impl TrayManager {
 
         // Left Speaker submenu
         let left_submenu = Submenu::new("Left Speaker", true);
-        let left_rl_current = matches!(current_left_source, ChannelSource::RL);
-        let left_rl_label = if left_rl_current { "[*] Source: RL (Rear Left)" } else { "Source: RL (Rear Left)" };
-        let left_rr_label = if !left_rl_current { "[*] Source: RR (Rear Right)" } else { "Source: RR (Rear Right)" };
+        let left_fl_label = if matches!(current_left_source, ChannelSource::FL) { "[*] Source: FL (Front Left)" } else { "Source: FL (Front Left)" };
+        let left_fr_label = if matches!(current_left_source, ChannelSource::FR) { "[*] Source: FR (Front Right)" } else { "Source: FR (Front Right)" };
+        let left_rl_label = if matches!(current_left_source, ChannelSource::RL) { "[*] Source: RL (Rear Left)" } else { "Source: RL (Rear Left)" };
+        let left_rr_label = if matches!(current_left_source, ChannelSource::RR) { "[*] Source: RR (Rear Right)" } else { "Source: RR (Rear Right)" };
+        let left_fl = MenuItem::new(left_fl_label, true, None);
+        let left_fr = MenuItem::new(left_fr_label, true, None);
         let left_rl = MenuItem::new(left_rl_label, true, None);
         let left_rr = MenuItem::new(left_rr_label, true, None);
         let left_mute = CheckMenuItem::new("Mute", true, left_muted, None);
+        left_submenu.append(&left_fl)?;
+        left_submenu.append(&left_fr)?;
         left_submenu.append(&left_rl)?;
         left_submenu.append(&left_rr)?;
         left_submenu.append(&PredefinedMenuItem::separator())?;
@@ -168,12 +184,17 @@ impl TrayManager {
 
         // Right Speaker submenu
         let right_submenu = Submenu::new("Right Speaker", true);
-        let right_rr_current = matches!(current_right_source, ChannelSource::RR);
-        let right_rl_label = if !right_rr_current { "[*] Source: RL (Rear Left)" } else { "Source: RL (Rear Left)" };
-        let right_rr_label = if right_rr_current { "[*] Source: RR (Rear Right)" } else { "Source: RR (Rear Right)" };
+        let right_fl_label = if matches!(current_right_source, ChannelSource::FL) { "[*] Source: FL (Front Left)" } else { "Source: FL (Front Left)" };
+        let right_fr_label = if matches!(current_right_source, ChannelSource::FR) { "[*] Source: FR (Front Right)" } else { "Source: FR (Front Right)" };
+        let right_rl_label = if matches!(current_right_source, ChannelSource::RL) { "[*] Source: RL (Rear Left)" } else { "Source: RL (Rear Left)" };
+        let right_rr_label = if matches!(current_right_source, ChannelSource::RR) { "[*] Source: RR (Rear Right)" } else { "Source: RR (Rear Right)" };
+        let right_fl = MenuItem::new(right_fl_label, true, None);
+        let right_fr = MenuItem::new(right_fr_label, true, None);
         let right_rl = MenuItem::new(right_rl_label, true, None);
         let right_rr = MenuItem::new(right_rr_label, true, None);
         let right_mute = CheckMenuItem::new("Mute", true, right_muted, None);
+        right_submenu.append(&right_fl)?;
+        right_submenu.append(&right_fr)?;
         right_submenu.append(&right_rl)?;
         right_submenu.append(&right_rr)?;
         right_submenu.append(&PredefinedMenuItem::separator())?;
@@ -209,14 +230,19 @@ impl TrayManager {
         // Store IDs for event handling
         let toggle_id = toggle_item.id().clone();
         let swap_id = swap_item.id().clone();
+        let clone_stereo_id = clone_stereo_item.id().clone();
         let startup_id = startup_item.id().clone();
         let quit_id = quit_item.id().clone();
         let test_main_left_id = test_main_left.id().clone();
         let test_main_right_id = test_main_right.id().clone();
         let test_sub_left_id = test_sub_left.id().clone();
         let test_sub_right_id = test_sub_right.id().clone();
+        let left_fl_id = left_fl.id().clone();
+        let left_fr_id = left_fr.id().clone();
         let left_rl_id = left_rl.id().clone();
         let left_rr_id = left_rr.id().clone();
+        let right_fl_id = right_fl.id().clone();
+        let right_fr_id = right_fr.id().clone();
         let right_rl_id = right_rl.id().clone();
         let right_rr_id = right_rr.id().clone();
         let left_mute_id = left_mute.id().clone();
@@ -226,6 +252,7 @@ impl TrayManager {
         let menu = Menu::new();
         menu.append(&toggle_item)?;
         menu.append(&swap_item)?;
+        menu.append(&clone_stereo_item)?;
         menu.append(&startup_item)?;
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&source_submenu)?;
@@ -253,6 +280,7 @@ impl TrayManager {
             tray_icon,
             toggle_item,
             swap_item,
+            clone_stereo_item,
             startup_item,
             left_mute_item: left_mute,
             right_mute_item: right_mute,
@@ -266,14 +294,19 @@ impl TrayManager {
             target_menu_items,
             toggle_id,
             swap_id,
+            clone_stereo_id,
             startup_id,
             quit_id,
             test_main_left_id,
             test_main_right_id,
             test_sub_left_id,
             test_sub_right_id,
+            left_fl_id,
+            left_fr_id,
             left_rl_id,
             left_rr_id,
+            right_fl_id,
+            right_fr_id,
             right_rl_id,
             right_rr_id,
             left_mute_id,
@@ -309,6 +342,11 @@ impl TrayManager {
         self.swap_item.set_checked(swap);
     }
 
+    /// Update clone stereo checkbox
+    pub fn set_clone_stereo(&mut self, enabled: bool) {
+        self.clone_stereo_item.set_checked(enabled);
+    }
+
     /// Update mute checkboxes
     pub fn set_left_mute(&mut self, muted: bool) {
         self.left_mute_item.set_checked(muted);
@@ -341,6 +379,8 @@ impl TrayManager {
             Some(TrayCommand::ToggleEnabled)
         } else if event.id == self.swap_id {
             Some(TrayCommand::ToggleSwapChannels)
+        } else if event.id == self.clone_stereo_id {
+            Some(TrayCommand::ToggleCloneStereo)
         } else if event.id == self.startup_id {
             Some(TrayCommand::ToggleStartup)
         } else if event.id == self.quit_id {
@@ -353,10 +393,18 @@ impl TrayManager {
             Some(TrayCommand::TestSubLeft)
         } else if event.id == self.test_sub_right_id {
             Some(TrayCommand::TestSubRight)
+        } else if event.id == self.left_fl_id {
+            Some(TrayCommand::SetLeftSource(ChannelSource::FL))
+        } else if event.id == self.left_fr_id {
+            Some(TrayCommand::SetLeftSource(ChannelSource::FR))
         } else if event.id == self.left_rl_id {
             Some(TrayCommand::SetLeftSource(ChannelSource::RL))
         } else if event.id == self.left_rr_id {
             Some(TrayCommand::SetLeftSource(ChannelSource::RR))
+        } else if event.id == self.right_fl_id {
+            Some(TrayCommand::SetRightSource(ChannelSource::FL))
+        } else if event.id == self.right_fr_id {
+            Some(TrayCommand::SetRightSource(ChannelSource::FR))
         } else if event.id == self.right_rl_id {
             Some(TrayCommand::SetRightSource(ChannelSource::RL))
         } else if event.id == self.right_rr_id {

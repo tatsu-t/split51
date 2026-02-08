@@ -396,6 +396,8 @@ fn process_channels(
     // Channel indices: FL=0, FR=1, RL=2, RR=3
     let get_channel_idx = |source: ChannelSource, channels: u16| -> usize {
         match source {
+            ChannelSource::FL => 0,  // Front Left - always index 0
+            ChannelSource::FR => 1,  // Front Right - always index 1
             ChannelSource::RL => if channels >= 4 { 2 } else { 0 },
             ChannelSource::RR => if channels >= 4 { 3 } else { 1 },
         }

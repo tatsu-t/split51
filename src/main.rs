@@ -105,6 +105,22 @@ impl ApplicationHandler for App {
                             info!("Swap channels: {}", self.config.swap_channels);
                             let _ = self.config.save();
                         }
+                        tray::TrayCommand::ToggleCloneStereo => {
+                            self.config.clone_stereo = !self.config.clone_stereo;
+                            // Update channel sources based on clone_stereo mode
+                            if self.config.clone_stereo {
+                                self.config.left_channel.source = config::ChannelSource::FL;
+                                self.config.right_channel.source = config::ChannelSource::FR;
+                            } else {
+                                self.config.left_channel.source = config::ChannelSource::RL;
+                                self.config.right_channel.source = config::ChannelSource::RR;
+                            }
+                            self.router.set_left_source(self.config.left_channel.source);
+                            self.router.set_right_source(self.config.right_channel.source);
+                            tray_manager.set_clone_stereo(self.config.clone_stereo);
+                            info!("Clone stereo: {}", self.config.clone_stereo);
+                            let _ = self.config.save();
+                        }
                         tray::TrayCommand::ToggleStartup => {
                             let current = is_startup_enabled();
                             let new_state = !current;
@@ -419,6 +435,7 @@ fn main() -> Result<()> {
         config.right_channel.muted,
         config.enabled,
         config.swap_channels,
+        config.clone_stereo,
         is_startup_enabled(),
     )?;
 

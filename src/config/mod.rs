@@ -5,6 +5,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ChannelSource {
+    FL,  // Front Left (index 0) - for stereo clone
+    FR,  // Front Right (index 1) - for stereo clone
     RL,  // Rear Left (index 2)
     RR,  // Rear Right (index 3)
 }
@@ -40,6 +42,7 @@ pub struct AppConfig {
     pub balance: f32,  // -1.0 (full left) to 1.0 (full right), 0.0 = center
     pub enabled: bool,
     pub swap_channels: bool,
+    pub clone_stereo: bool,  // Use FL/FR instead of RL/RR
     pub left_channel: ChannelConfig,   // Left speaker settings
     pub right_channel: ChannelConfig,  // Right speaker settings
 }
@@ -53,6 +56,7 @@ impl Default for AppConfig {
             balance: 0.0,
             enabled: true,
             swap_channels: false,
+            clone_stereo: false,
             left_channel: ChannelConfig {
                 source: ChannelSource::RL,
                 volume: 1.0,
