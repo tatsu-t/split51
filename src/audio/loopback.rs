@@ -11,13 +11,48 @@ use std::sync::Arc;
 use std::thread;
 use tracing::{info, error, warn};
 use crate::config::ChannelSource;
+use crate::dsp::{DspChain, SharedLevels};
 use super::ChannelSettings;
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::WAIT_OBJECT_0;
 use windows::Win32::Media::Audio::*;
+use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::System::Com::*;
 use windows::Win32::System::Threading::*;
+
+/// DSP configuration for loopback capture
+#[derive(Clone)]
+pub struct DspConfig {
+    pub delay_ms: Arc<RwLock<f32>>,
+    pub eq_enabled: Arc<RwLock<bool>>,
+    pub eq_low: Arc<RwLock<f32>>,
+    pub eq_mid: Arc<RwLock<f32>>,
+    pub eq_high: Arc<RwLock<f32>>,
+    pub upmix_enabled: Arc<RwLock<bool>>,
+    pub upmix_strength: Arc<RwLock<f32>>,
+    pub shared_levels: Arc<SharedLevels>,
+    /// Master volume from source device (0.0-1.0)
+    pub master_volume: Arc<RwLock<f32>>,
+    pub sync_master_volume: Arc<RwLock<bool>>,
+}
+
+impl DspConfig {
+    pub fn new() -> Self {
+        Self {
+            delay_ms: Arc::new(RwLock::new(0.0)),
+            eq_enabled: Arc::new(RwLock::new(false)),
+            eq_low: Arc::new(RwLock::new(0.0)),
+            eq_mid: Arc::new(RwLock::new(0.0)),
+            eq_high: Arc::new(RwLock::new(0.0)),
+            upmix_enabled: Arc::new(RwLock::new(false)),
+            upmix_strength: Arc::new(RwLock::new(0.5)),
+            shared_levels: SharedLevels::new(),
+            master_volume: Arc::new(RwLock::new(1.0)),
+            sync_master_volume: Arc::new(RwLock::new(true)),
+        }
+    }
+}
 
 pub struct LoopbackCapture {
     running: Arc<AtomicBool>,
@@ -43,6 +78,7 @@ impl LoopbackCapture {
         balance: Arc<RwLock<f32>>,
         left_channel: Arc<RwLock<ChannelSettings>>,
         right_channel: Arc<RwLock<ChannelSettings>>,
+        dsp_config: DspConfig,
     ) -> Result<()> {
         self.stop();
 
@@ -63,6 +99,7 @@ impl LoopbackCapture {
                 &balance,
                 &left_channel,
                 &right_channel,
+                &dsp_config,
             ) {
                 error!("Loopback capture error: {}", e);
             }
@@ -162,6 +199,7 @@ fn capture_loop<P: Producer<Item = f32>>(
     balance: &RwLock<f32>,
     left_channel: &RwLock<ChannelSettings>,
     right_channel: &RwLock<ChannelSettings>,
+    dsp_config: &DspConfig,
 ) -> Result<()> {
     // Track buffer overflow warnings (only log once per 1000 drops)
     let mut overflow_counter: u32 = 0;
@@ -176,6 +214,10 @@ fn capture_loop<P: Producer<Item = f32>>(
         info!("Found loopback device: {}", device_name);
 
         let client: IAudioClient = device.Activate(CLSCTX_ALL, None)?;
+        
+        // Get endpoint volume control for master volume sync
+        let endpoint_volume: Option<IAudioEndpointVolume> = 
+            device.Activate(CLSCTX_ALL, None).ok();
         
         // Get mix format
         let format_ptr = client.GetMixFormat()?;
@@ -238,10 +280,46 @@ fn capture_loop<P: Producer<Item = f32>>(
         // Buffers for resampling
         let mut resample_input: Vec<Vec<f32>> = vec![Vec::new(); 2];
 
+        // Initialize DSP chain
+        let mut dsp_chain = DspChain::new(target_sample_rate, dsp_config.shared_levels.clone());
+        
+        // Counter for master volume updates (every ~100ms instead of every loop)
+        let mut master_vol_counter: u32 = 0;
+
         client.Start()?;
         info!("Loopback capture started");
 
         while running.load(Ordering::Relaxed) {
+            // Update DSP settings from config
+            let delay = *dsp_config.delay_ms.read();
+            if (delay - dsp_chain.delay_ms).abs() > 0.1 {
+                dsp_chain.set_delay_ms(delay);
+            }
+            dsp_chain.eq_enabled = *dsp_config.eq_enabled.read();
+            if dsp_chain.eq_enabled {
+                dsp_chain.set_eq(
+                    *dsp_config.eq_low.read(),
+                    *dsp_config.eq_mid.read(),
+                    *dsp_config.eq_high.read(),
+                );
+            }
+            dsp_chain.upmix_enabled = *dsp_config.upmix_enabled.read();
+            dsp_chain.upmixer.set_strength(*dsp_config.upmix_strength.read());
+            
+            // Update master volume from source device (every ~100ms)
+            master_vol_counter += 1;
+            if master_vol_counter >= 5 {  // ~100ms at 20ms buffer
+                master_vol_counter = 0;
+                let sync_master = *dsp_config.sync_master_volume.read();
+                if sync_master {
+                    if let Some(ref ep_vol) = endpoint_volume {
+                        if let Ok(master_vol) = ep_vol.GetMasterVolumeLevelScalar() {
+                            *dsp_config.master_volume.write() = master_vol;
+                        }
+                    }
+                }
+            }
+
             // Wait for buffer event
             let wait_result = WaitForSingleObject(event, 100);
             if wait_result != WAIT_OBJECT_0 {
@@ -271,6 +349,8 @@ fn capture_loop<P: Producer<Item = f32>>(
                 let bal = *balance.read();
                 let left_ch = left_channel.read().clone();
                 let right_ch = right_channel.read().clone();
+                let master_vol = *dsp_config.master_volume.read();
+                let sync_master = *dsp_config.sync_master_volume.read();
 
                 // Convert buffer to f32 samples
                 let bytes_per_sample = (bits_per_sample / 8) as usize;
@@ -280,7 +360,8 @@ fn capture_loop<P: Producer<Item = f32>>(
                 );
 
                 let samples = bytes_to_f32(data_slice, bytes_per_sample);
-                let stereo_output = process_channels(&samples, channels, vol, swap, bal, &left_ch, &right_ch);
+                let effective_vol = if sync_master { vol * master_vol } else { vol };
+                let stereo_output = process_channels(&samples, channels, effective_vol, swap, bal, &left_ch, &right_ch, &mut dsp_chain);
 
                 // Apply resampling if needed
                 if let Some(ref mut rs) = resampler {
@@ -302,29 +383,34 @@ fn capture_loop<P: Producer<Item = f32>>(
                         let input_chunk = vec![left_chunk, right_chunk];
                         
                         if let Ok(resampled) = rs.process(&input_chunk, None) {
-                            // Interleave and push to producer
+                            // Apply DSP and push to producer
                             let frames = resampled[0].len();
                             for i in 0..frames {
-                                if producer.try_push(resampled[0][i]).is_err() {
+                                let (l, r) = dsp_chain.process(resampled[0][i], resampled[1][i]);
+                                if producer.try_push(l).is_err() {
                                     overflow_counter += 1;
                                     if overflow_counter == 1 || overflow_counter % 10000 == 0 {
                                         warn!("Buffer overflow: {} samples dropped (output not consuming fast enough)", overflow_counter);
                                     }
                                 }
-                                if producer.try_push(resampled[1][i]).is_err() {
+                                if producer.try_push(r).is_err() {
                                     overflow_counter += 1;
                                 }
                             }
                         }
                     }
                 } else {
-                    // No resampling needed, push directly
-                    for sample in stereo_output {
-                        if producer.try_push(sample).is_err() {
-                            overflow_counter += 1;
-                            if overflow_counter == 1 || overflow_counter % 10000 == 0 {
-                                warn!("Buffer overflow: {} samples dropped", overflow_counter);
+                    // No resampling needed, apply DSP and push directly
+                    for frame in stereo_output.chunks(2) {
+                        if frame.len() == 2 {
+                            let (l, r) = dsp_chain.process(frame[0], frame[1]);
+                            if producer.try_push(l).is_err() {
+                                overflow_counter += 1;
+                                if overflow_counter == 1 || overflow_counter % 10000 == 0 {
+                                    warn!("Buffer overflow: {} samples dropped", overflow_counter);
+                                }
                             }
+                            let _ = producer.try_push(r);
                         }
                     }
                 }
@@ -382,6 +468,7 @@ fn process_channels(
     balance: f32,
     left_ch: &ChannelSettings,
     right_ch: &ChannelSettings,
+    dsp: &mut DspChain,
 ) -> Vec<f32> {
     if input.is_empty() || channels == 0 {
         return Vec::new();
@@ -407,6 +494,13 @@ fn process_channels(
     for frame in 0..frames {
         let base = frame * channels as usize;
         
+        // Get front channels for upmix (FL=0, FR=1)
+        let fl = input.get(base).copied().unwrap_or(0.0);
+        let fr = input.get(base + 1).copied().unwrap_or(0.0);
+        
+        // Get upmix contribution (pseudo surround from front channels)
+        let (upmix_l, upmix_r) = dsp.get_upmix(fl, fr);
+        
         // Get source samples based on channel settings
         let left_idx = get_channel_idx(left_ch.source, channels);
         let right_idx = get_channel_idx(right_ch.source, channels);
@@ -423,12 +517,19 @@ fn process_channels(
             input.get(base + right_idx).copied().unwrap_or(0.0) * right_ch.volume
         };
         
+        // Add upmix contribution
+        left += upmix_l;
+        right += upmix_r;
+        
         if swap {
             std::mem::swap(&mut left, &mut right);
         }
         
-        output.push(left * volume * left_mult);
-        output.push(right * volume * right_mult);
+        // Apply final volume and clamp to prevent clipping
+        let out_l = (left * volume * left_mult).clamp(-1.0, 1.0);
+        let out_r = (right * volume * right_mult).clamp(-1.0, 1.0);
+        output.push(out_l);
+        output.push(out_r);
     }
     output
 }

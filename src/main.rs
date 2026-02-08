@@ -3,6 +3,7 @@
 
 mod audio;
 mod config;
+mod dsp;
 mod tray;
 
 use anyhow::Result;
@@ -249,6 +250,65 @@ impl ApplicationHandler for App {
                                 }
                             });
                         }
+                        tray::TrayCommand::SetDelayMs(ms) => {
+                            self.config.delay_ms = ms;
+                            self.router.set_delay_ms(ms);
+                            tray_manager.set_delay_ms(ms);
+                            info!("Delay set to {} ms", ms);
+                            let _ = self.config.save();
+                        }
+                        tray::TrayCommand::ToggleEq => {
+                            self.config.eq_enabled = !self.config.eq_enabled;
+                            self.router.set_eq_enabled(self.config.eq_enabled);
+                            if self.config.eq_enabled {
+                                self.router.set_eq(self.config.eq_low, self.config.eq_mid, self.config.eq_high);
+                            }
+                            tray_manager.set_eq_enabled(self.config.eq_enabled);
+                            info!("EQ: {}", self.config.eq_enabled);
+                            let _ = self.config.save();
+                        }
+                        tray::TrayCommand::SetEqLow(db) => {
+                            self.config.eq_low = db;
+                            self.router.set_eq(self.config.eq_low, self.config.eq_mid, self.config.eq_high);
+                            tray_manager.set_eq_low(db);
+                            info!("EQ Low: {} dB", db);
+                            let _ = self.config.save();
+                        }
+                        tray::TrayCommand::SetEqMid(db) => {
+                            self.config.eq_mid = db;
+                            self.router.set_eq(self.config.eq_low, self.config.eq_mid, self.config.eq_high);
+                            tray_manager.set_eq_mid(db);
+                            info!("EQ Mid: {} dB", db);
+                            let _ = self.config.save();
+                        }
+                        tray::TrayCommand::SetEqHigh(db) => {
+                            self.config.eq_high = db;
+                            self.router.set_eq(self.config.eq_low, self.config.eq_mid, self.config.eq_high);
+                            tray_manager.set_eq_high(db);
+                            info!("EQ High: {} dB", db);
+                            let _ = self.config.save();
+                        }
+                        tray::TrayCommand::ToggleUpmix => {
+                            self.config.upmix_enabled = !self.config.upmix_enabled;
+                            self.router.set_upmix_enabled(self.config.upmix_enabled);
+                            tray_manager.set_upmix_enabled(self.config.upmix_enabled);
+                            info!("Upmix: {}", self.config.upmix_enabled);
+                            let _ = self.config.save();
+                        }
+                        tray::TrayCommand::SetUpmixStrength(strength) => {
+                            self.config.upmix_strength = strength;
+                            self.router.set_upmix_strength(strength);
+                            tray_manager.set_upmix_strength(strength);
+                            info!("Upmix strength: {}x", strength);
+                            let _ = self.config.save();
+                        }
+                        tray::TrayCommand::ToggleSyncMasterVolume => {
+                            self.config.sync_master_volume = !self.config.sync_master_volume;
+                            self.router.set_sync_master_volume(self.config.sync_master_volume);
+                            tray_manager.set_sync_master_volume(self.config.sync_master_volume);
+                            info!("Sync master volume: {}", self.config.sync_master_volume);
+                            let _ = self.config.save();
+                        }
                         tray::TrayCommand::Quit => {
                             info!("Quit requested");
                             self.router.stop();
@@ -399,6 +459,13 @@ fn main() -> Result<()> {
     router.set_balance(config.balance);
     router.set_left_channel(&config.left_channel);
     router.set_right_channel(&config.right_channel);
+    // DSP settings
+    router.set_delay_ms(config.delay_ms);
+    router.set_eq_enabled(config.eq_enabled);
+    router.set_eq(config.eq_low, config.eq_mid, config.eq_high);
+    router.set_upmix_enabled(config.upmix_enabled);
+    router.set_upmix_strength(config.upmix_strength);
+    router.set_sync_master_volume(config.sync_master_volume);
 
     // Start routing if enabled (using WASAPI Loopback)
     if config.enabled {
@@ -437,6 +504,15 @@ fn main() -> Result<()> {
         config.swap_channels,
         config.clone_stereo,
         is_startup_enabled(),
+        // DSP settings
+        config.delay_ms,
+        config.eq_enabled,
+        config.eq_low,
+        config.eq_mid,
+        config.eq_high,
+        config.upmix_enabled,
+        config.upmix_strength,
+        config.sync_master_volume,
     )?;
 
     info!("Tray icon initialized, entering main loop");

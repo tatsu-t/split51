@@ -9,8 +9,9 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use tracing::{info, error};
 use crate::config::{ChannelConfig, ChannelSource};
+use crate::dsp::SharedLevels;
 
-pub use loopback::LoopbackCapture;
+pub use loopback::{LoopbackCapture, DspConfig};
 
 pub struct AudioDevice {
     pub name: String,
@@ -131,6 +132,7 @@ pub struct AudioRouter {
     left_channel: Arc<RwLock<ChannelSettings>>,
     right_channel: Arc<RwLock<ChannelSettings>>,
     target_device_name: Option<String>,
+    dsp_config: DspConfig,
 }
 
 impl AudioRouter {
@@ -152,7 +154,45 @@ impl AudioRouter {
                 muted: false,
             })),
             target_device_name: None,
+            dsp_config: DspConfig::new(),
         })
+    }
+
+    /// Get shared level meter values
+    pub fn get_shared_levels(&self) -> Arc<SharedLevels> {
+        self.dsp_config.shared_levels.clone()
+    }
+
+    /// Set DSP delay in milliseconds
+    pub fn set_delay_ms(&self, ms: f32) {
+        *self.dsp_config.delay_ms.write() = ms.clamp(0.0, 200.0);
+    }
+
+    /// Set EQ enabled state
+    pub fn set_eq_enabled(&self, enabled: bool) {
+        *self.dsp_config.eq_enabled.write() = enabled;
+    }
+
+    /// Set EQ gains (in dB, -12 to +12)
+    pub fn set_eq(&self, low: f32, mid: f32, high: f32) {
+        *self.dsp_config.eq_low.write() = low.clamp(-12.0, 12.0);
+        *self.dsp_config.eq_mid.write() = mid.clamp(-12.0, 12.0);
+        *self.dsp_config.eq_high.write() = high.clamp(-12.0, 12.0);
+    }
+
+    /// Set upmix (pseudo-surround) enabled
+    pub fn set_upmix_enabled(&self, enabled: bool) {
+        *self.dsp_config.upmix_enabled.write() = enabled;
+    }
+
+    /// Set upmix strength (1.0 to 10.0)
+    pub fn set_upmix_strength(&self, strength: f32) {
+        *self.dsp_config.upmix_strength.write() = strength.clamp(1.0, 10.0);
+    }
+
+    /// Set master volume sync enabled
+    pub fn set_sync_master_volume(&self, enabled: bool) {
+        *self.dsp_config.sync_master_volume.write() = enabled;
     }
 
     pub fn list_output_devices(&self) -> Result<Vec<AudioDevice>> {
@@ -308,6 +348,7 @@ impl AudioRouter {
             self.balance.clone(),
             self.left_channel.clone(),
             self.right_channel.clone(),
+            self.dsp_config.clone(),
         )?;
 
         // Build output stream

@@ -23,6 +23,15 @@ pub enum TrayCommand {
     SetRightVolume(f32),
     SelectSourceDevice(String),
     SelectTargetDevice(String),
+    // DSP commands
+    SetDelayMs(f32),
+    ToggleEq,
+    SetEqLow(f32),
+    SetEqMid(f32),
+    SetEqHigh(f32),
+    ToggleUpmix,
+    SetUpmixStrength(f32),
+    ToggleSyncMasterVolume,
     Quit,
 }
 
@@ -34,14 +43,28 @@ pub struct TrayManager {
     startup_item: CheckMenuItem,
     left_mute_item: CheckMenuItem,
     right_mute_item: CheckMenuItem,
+    eq_item: CheckMenuItem,
+    sync_master_item: CheckMenuItem,
+    upmix_item: CheckMenuItem,
     volume_items: HashMap<MenuId, f32>,
     balance_items: HashMap<MenuId, f32>,
     left_volume_items: HashMap<MenuId, f32>,
     right_volume_items: HashMap<MenuId, f32>,
+    delay_items: HashMap<MenuId, f32>,
+    eq_low_items: HashMap<MenuId, f32>,
+    eq_mid_items: HashMap<MenuId, f32>,
+    eq_high_items: HashMap<MenuId, f32>,
     source_device_items: HashMap<MenuId, String>,
     target_device_items: HashMap<MenuId, String>,
     source_menu_items: Vec<(MenuId, MenuItem, String)>,
     target_menu_items: Vec<(MenuId, MenuItem, String)>,
+    // For updating checkmarks
+    delay_menu_items: Vec<(MenuId, MenuItem, i32)>,
+    eq_low_menu_items: Vec<(MenuId, MenuItem, i32)>,
+    eq_mid_menu_items: Vec<(MenuId, MenuItem, i32)>,
+    eq_high_menu_items: Vec<(MenuId, MenuItem, i32)>,
+    upmix_strength_items: HashMap<MenuId, f32>,
+    upmix_strength_menu_items: Vec<(MenuId, MenuItem, i32)>,
     toggle_id: MenuId,
     swap_id: MenuId,
     clone_stereo_id: MenuId,
@@ -61,9 +84,13 @@ pub struct TrayManager {
     right_rr_id: MenuId,
     left_mute_id: MenuId,
     right_mute_id: MenuId,
+    eq_id: MenuId,
+    upmix_id: MenuId,
+    sync_master_id: MenuId,
 }
 
 impl TrayManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         source_devices: &[String],
         target_devices: &[String],
@@ -81,6 +108,15 @@ impl TrayManager {
         swap_channels: bool,
         clone_stereo: bool,
         startup_enabled: bool,
+        // DSP settings
+        delay_ms: f32,
+        eq_enabled: bool,
+        eq_low: f32,
+        eq_mid: f32,
+        eq_high: f32,
+        upmix_enabled: bool,
+        upmix_strength: f32,
+        sync_master_volume: bool,
     ) -> Result<Self> {
         // Create menu items
         let toggle_text = if enabled { "Disable Routing" } else { "Enable Routing" };
@@ -225,6 +261,100 @@ impl TrayManager {
         test_submenu.append(&test_sub_left)?;
         test_submenu.append(&test_sub_right)?;
 
+        // DSP submenu
+        let dsp_submenu = Submenu::new("DSP Effects", true);
+        
+        // Delay submenu
+        let delay_submenu = Submenu::new("Delay", true);
+        let mut delay_items = HashMap::new();
+        let mut delay_menu_items = Vec::new();
+        let current_delay_ms = delay_ms.round() as i32;
+        for ms in [0, 10, 20, 50, 100, 200] {
+            let is_current = ms == current_delay_ms;
+            let label = if is_current { format!("[*] {} ms", ms) } else { format!("{} ms", ms) };
+            let item = MenuItem::new(&label, true, None);
+            delay_items.insert(item.id().clone(), ms as f32);
+            delay_menu_items.push((item.id().clone(), item.clone(), ms));
+            delay_submenu.append(&item)?;
+        }
+        dsp_submenu.append(&delay_submenu)?;
+        
+        // EQ checkbox
+        let eq_item = CheckMenuItem::new("Equalizer", true, eq_enabled, None);
+        dsp_submenu.append(&eq_item)?;
+        
+        // EQ Low submenu
+        let eq_low_submenu = Submenu::new("EQ Low (200Hz)", true);
+        let mut eq_low_items = HashMap::new();
+        let mut eq_low_menu_items = Vec::new();
+        let current_low = eq_low.round() as i32;
+        for db in [-12, -6, -3, 0, 3, 6, 12] {
+            let is_current = db == current_low;
+            let label = if is_current { format!("[*] {:+} dB", db) } else { format!("{:+} dB", db) };
+            let item = MenuItem::new(&label, true, None);
+            eq_low_items.insert(item.id().clone(), db as f32);
+            eq_low_menu_items.push((item.id().clone(), item.clone(), db));
+            eq_low_submenu.append(&item)?;
+        }
+        dsp_submenu.append(&eq_low_submenu)?;
+        
+        // EQ Mid submenu
+        let eq_mid_submenu = Submenu::new("EQ Mid (1kHz)", true);
+        let mut eq_mid_items = HashMap::new();
+        let mut eq_mid_menu_items = Vec::new();
+        let current_mid = eq_mid.round() as i32;
+        for db in [-12, -6, -3, 0, 3, 6, 12] {
+            let is_current = db == current_mid;
+            let label = if is_current { format!("[*] {:+} dB", db) } else { format!("{:+} dB", db) };
+            let item = MenuItem::new(&label, true, None);
+            eq_mid_items.insert(item.id().clone(), db as f32);
+            eq_mid_menu_items.push((item.id().clone(), item.clone(), db));
+            eq_mid_submenu.append(&item)?;
+        }
+        dsp_submenu.append(&eq_mid_submenu)?;
+        
+        // EQ High submenu
+        let eq_high_submenu = Submenu::new("EQ High (4kHz)", true);
+        let mut eq_high_items = HashMap::new();
+        let mut eq_high_menu_items = Vec::new();
+        let current_high = eq_high.round() as i32;
+        for db in [-12, -6, -3, 0, 3, 6, 12] {
+            let is_current = db == current_high;
+            let label = if is_current { format!("[*] {:+} dB", db) } else { format!("{:+} dB", db) };
+            let item = MenuItem::new(&label, true, None);
+            eq_high_items.insert(item.id().clone(), db as f32);
+            eq_high_menu_items.push((item.id().clone(), item.clone(), db));
+            eq_high_submenu.append(&item)?;
+        }
+        dsp_submenu.append(&eq_high_submenu)?;
+        
+        dsp_submenu.append(&PredefinedMenuItem::separator())?;
+        
+        // Upmix checkbox
+        let upmix_item = CheckMenuItem::new("Pseudo Surround (Upmix)", true, upmix_enabled, None);
+        dsp_submenu.append(&upmix_item)?;
+        
+        // Upmix strength submenu
+        let upmix_strength_submenu = Submenu::new("Upmix Volume", true);
+        let mut upmix_strength_items = HashMap::new();
+        let mut upmix_strength_menu_items = Vec::new();
+        let current_strength = (upmix_strength * 10.0).round() as i32;  // Store as x10 int
+        for strength in [10, 20, 40, 60, 80, 100] {  // 1x, 2x, 4x, 6x, 8x, 10x
+            let is_current = strength == current_strength;
+            let label = if is_current { format!("[*] {}x", strength / 10) } else { format!("{}x", strength / 10) };
+            let item = MenuItem::new(&label, true, None);
+            upmix_strength_items.insert(item.id().clone(), strength as f32 / 10.0);
+            upmix_strength_menu_items.push((item.id().clone(), item.clone(), strength));
+            upmix_strength_submenu.append(&item)?;
+        }
+        dsp_submenu.append(&upmix_strength_submenu)?;
+        
+        dsp_submenu.append(&PredefinedMenuItem::separator())?;
+        
+        // Sync master volume checkbox
+        let sync_master_item = CheckMenuItem::new("Sync Master Volume", true, sync_master_volume, None);
+        dsp_submenu.append(&sync_master_item)?;
+
         let quit_item = MenuItem::new("Quit", true, None);
 
         // Store IDs for event handling
@@ -247,6 +377,9 @@ impl TrayManager {
         let right_rr_id = right_rr.id().clone();
         let left_mute_id = left_mute.id().clone();
         let right_mute_id = right_mute.id().clone();
+        let eq_id = eq_item.id().clone();
+        let upmix_id = upmix_item.id().clone();
+        let sync_master_id = sync_master_item.id().clone();
 
         // Build menu
         let menu = Menu::new();
@@ -263,6 +396,8 @@ impl TrayManager {
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&left_submenu)?;
         menu.append(&right_submenu)?;
+        menu.append(&PredefinedMenuItem::separator())?;
+        menu.append(&dsp_submenu)?;
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&test_submenu)?;
         menu.append(&PredefinedMenuItem::separator())?;
@@ -311,7 +446,77 @@ impl TrayManager {
             right_rr_id,
             left_mute_id,
             right_mute_id,
+            eq_item,
+            upmix_item,
+            delay_items,
+            eq_low_items,
+            eq_mid_items,
+            eq_high_items,
+            delay_menu_items,
+            eq_low_menu_items,
+            eq_mid_menu_items,
+            eq_high_menu_items,
+            upmix_strength_items,
+            upmix_strength_menu_items,
+            eq_id,
+            upmix_id,
+            sync_master_item,
+            sync_master_id,
         })
+    }
+
+    /// Update delay menu checkmarks
+    pub fn set_delay_ms(&mut self, ms: f32) {
+        let current = ms.round() as i32;
+        for (_, item, value) in &self.delay_menu_items {
+            let is_current = *value == current;
+            let label = if is_current { format!("[*] {} ms", value) } else { format!("{} ms", value) };
+            item.set_text(&label);
+        }
+    }
+
+    /// Update Upmix strength checkmarks
+    pub fn set_upmix_strength(&mut self, strength: f32) {
+        let current = (strength * 10.0).round() as i32;
+        for (_, item, value) in &self.upmix_strength_menu_items {
+            let is_current = *value == current;
+            let label = if is_current { format!("[*] {}x", value / 10) } else { format!("{}x", value / 10) };
+            item.set_text(&label);
+        }
+    }
+
+    pub fn set_sync_master_volume(&mut self, enabled: bool) {
+        self.sync_master_item.set_checked(enabled);
+    }
+
+    /// Update EQ Low checkmarks
+    pub fn set_eq_low(&mut self, db: f32) {
+        let current = db.round() as i32;
+        for (_, item, value) in &self.eq_low_menu_items {
+            let is_current = *value == current;
+            let label = if is_current { format!("[*] {:+} dB", value) } else { format!("{:+} dB", value) };
+            item.set_text(&label);
+        }
+    }
+
+    /// Update EQ Mid checkmarks
+    pub fn set_eq_mid(&mut self, db: f32) {
+        let current = db.round() as i32;
+        for (_, item, value) in &self.eq_mid_menu_items {
+            let is_current = *value == current;
+            let label = if is_current { format!("[*] {:+} dB", value) } else { format!("{:+} dB", value) };
+            item.set_text(&label);
+        }
+    }
+
+    /// Update EQ High checkmarks
+    pub fn set_eq_high(&mut self, db: f32) {
+        let current = db.round() as i32;
+        for (_, item, value) in &self.eq_high_menu_items {
+            let is_current = *value == current;
+            let label = if is_current { format!("[*] {:+} dB", value) } else { format!("{:+} dB", value) };
+            item.set_text(&label);
+        }
     }
 
     /// Update tray icon and tooltip based on enabled state
@@ -345,6 +550,16 @@ impl TrayManager {
     /// Update clone stereo checkbox
     pub fn set_clone_stereo(&mut self, enabled: bool) {
         self.clone_stereo_item.set_checked(enabled);
+    }
+
+    /// Update EQ checkbox
+    pub fn set_eq_enabled(&mut self, enabled: bool) {
+        self.eq_item.set_checked(enabled);
+    }
+
+    /// Update upmix checkbox
+    pub fn set_upmix_enabled(&mut self, enabled: bool) {
+        self.upmix_item.set_checked(enabled);
     }
 
     /// Update mute checkboxes
@@ -413,6 +628,12 @@ impl TrayManager {
             Some(TrayCommand::ToggleLeftMute)
         } else if event.id == self.right_mute_id {
             Some(TrayCommand::ToggleRightMute)
+        } else if event.id == self.eq_id {
+            Some(TrayCommand::ToggleEq)
+        } else if event.id == self.upmix_id {
+            Some(TrayCommand::ToggleUpmix)
+        } else if event.id == self.sync_master_id {
+            Some(TrayCommand::ToggleSyncMasterVolume)
         } else if let Some(&vol) = self.volume_items.get(&event.id) {
             Some(TrayCommand::SetVolume(vol))
         } else if let Some(&bal) = self.balance_items.get(&event.id) {
@@ -421,6 +642,16 @@ impl TrayManager {
             Some(TrayCommand::SetLeftVolume(vol))
         } else if let Some(&vol) = self.right_volume_items.get(&event.id) {
             Some(TrayCommand::SetRightVolume(vol))
+        } else if let Some(&delay) = self.delay_items.get(&event.id) {
+            Some(TrayCommand::SetDelayMs(delay))
+        } else if let Some(&db) = self.eq_low_items.get(&event.id) {
+            Some(TrayCommand::SetEqLow(db))
+        } else if let Some(&db) = self.eq_mid_items.get(&event.id) {
+            Some(TrayCommand::SetEqMid(db))
+        } else if let Some(&db) = self.eq_high_items.get(&event.id) {
+            Some(TrayCommand::SetEqHigh(db))
+        } else if let Some(&strength) = self.upmix_strength_items.get(&event.id) {
+            Some(TrayCommand::SetUpmixStrength(strength))
         } else if let Some(device) = self.source_device_items.get(&event.id) {
             Some(TrayCommand::SelectSourceDevice(device.clone()))
         } else if let Some(device) = self.target_device_items.get(&event.id) {

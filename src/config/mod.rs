@@ -45,6 +45,15 @@ pub struct AppConfig {
     pub clone_stereo: bool,  // Use FL/FR instead of RL/RR
     pub left_channel: ChannelConfig,   // Left speaker settings
     pub right_channel: ChannelConfig,  // Right speaker settings
+    // DSP settings
+    pub delay_ms: f32,       // Delay in milliseconds (0-200)
+    pub eq_enabled: bool,
+    pub eq_low: f32,         // -12.0 to +12.0 dB
+    pub eq_mid: f32,         // -12.0 to +12.0 dB
+    pub eq_high: f32,        // -12.0 to +12.0 dB
+    pub upmix_enabled: bool, // Pseudo-surround from stereo
+    pub upmix_strength: f32, // 0.0 to 1.0
+    pub sync_master_volume: bool, // Sync with Windows master volume
 }
 
 impl Default for AppConfig {
@@ -67,6 +76,14 @@ impl Default for AppConfig {
                 volume: 1.0,
                 muted: false,
             },
+            delay_ms: 0.0,
+            eq_enabled: false,
+            eq_low: 0.0,
+            eq_mid: 0.0,
+            eq_high: 0.0,
+            upmix_enabled: false,
+            upmix_strength: 4.0,  // 4x for matching main volume
+            sync_master_volume: true,  // Default: sync with Windows volume
         }
     }
 }
