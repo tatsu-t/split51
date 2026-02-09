@@ -35,6 +35,8 @@ pub struct DspConfig {
     /// Master volume from source device (0.0-1.0)
     pub master_volume: Arc<RwLock<f32>>,
     pub sync_master_volume: Arc<RwLock<bool>>,
+    /// Master mute state from source device
+    pub master_muted: Arc<RwLock<bool>>,
 }
 
 impl DspConfig {
@@ -50,6 +52,7 @@ impl DspConfig {
             shared_levels: SharedLevels::new(),
             master_volume: Arc::new(RwLock::new(1.0)),
             sync_master_volume: Arc::new(RwLock::new(true)),
+            master_muted: Arc::new(RwLock::new(false)),
         }
     }
 }
@@ -128,8 +131,32 @@ fn find_device_by_name(name: &str) -> Result<IMMDevice> {
 
         let collection = enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)?;
         let count = collection.GetCount()?;
+        
+        // Collect all device IDs and find best match
+        let name_lower = name.to_lowercase();
+        
+        for i in 0..count {
+            if let Ok(device) = collection.Item(i) {
+                if let Ok(id_ptr) = device.GetId() {
+                    let id = id_ptr.to_string()?;
+                    let id_lower = id.to_lowercase();
+                    
+                    // Check if device ID contains key parts of the name
+                    // cpal names usually contain the friendly name
+                    let name_parts: Vec<&str> = name_lower.split(&[' ', '(', ')', '-'][..])
+                        .filter(|s| s.len() > 2)
+                        .collect();
+                    
+                    let matches = name_parts.iter().any(|part| id_lower.contains(part));
+                    if matches {
+                        info!("Found device: {} (ID contains match)", id);
+                        return Ok(device);
+                    }
+                }
+            }
+        }
 
-        // Try to match by device ID containing part of the name
+        // Fallback: try to match by device ID
         for i in 0..count {
             if let Ok(device) = collection.Item(i) {
                 let id = device.GetId()?.to_string()?;
@@ -306,7 +333,7 @@ fn capture_loop<P: Producer<Item = f32>>(
             dsp_chain.upmix_enabled = *dsp_config.upmix_enabled.read();
             dsp_chain.upmixer.set_strength(*dsp_config.upmix_strength.read());
             
-            // Update master volume from source device (every ~100ms)
+            // Update master volume and mute state from source device (every ~100ms)
             master_vol_counter += 1;
             if master_vol_counter >= 5 {  // ~100ms at 20ms buffer
                 master_vol_counter = 0;
@@ -315,6 +342,9 @@ fn capture_loop<P: Producer<Item = f32>>(
                     if let Some(ref ep_vol) = endpoint_volume {
                         if let Ok(master_vol) = ep_vol.GetMasterVolumeLevelScalar() {
                             *dsp_config.master_volume.write() = master_vol;
+                        }
+                        if let Ok(muted) = ep_vol.GetMute() {
+                            *dsp_config.master_muted.write() = muted.as_bool();
                         }
                     }
                 }
@@ -350,6 +380,7 @@ fn capture_loop<P: Producer<Item = f32>>(
                 let left_ch = left_channel.read().clone();
                 let right_ch = right_channel.read().clone();
                 let master_vol = *dsp_config.master_volume.read();
+                let master_muted = *dsp_config.master_muted.read();
                 let sync_master = *dsp_config.sync_master_volume.read();
 
                 // Convert buffer to f32 samples
@@ -360,7 +391,12 @@ fn capture_loop<P: Producer<Item = f32>>(
                 );
 
                 let samples = bytes_to_f32(data_slice, bytes_per_sample);
-                let effective_vol = if sync_master { vol * master_vol } else { vol };
+                // Apply master volume and mute if sync enabled
+                let effective_vol = if sync_master {
+                    if master_muted { 0.0 } else { vol * master_vol }
+                } else { 
+                    vol 
+                };
                 let stereo_output = process_channels(&samples, channels, effective_vol, swap, bal, &left_ch, &right_ch, &mut dsp_chain);
 
                 // Apply resampling if needed

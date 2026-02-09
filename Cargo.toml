@@ -1,6 +1,6 @@
 [package]
 name = "split51"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2024"
 description = "Windows 5.1ch surround audio splitter - Route RL/RR channels to secondary output"
 authors = ["tatsu-t"]
